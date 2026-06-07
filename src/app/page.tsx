@@ -54,7 +54,6 @@ export default function Home() {
 
   const handleGenerate = useCallback(async () => {
     if (!topic.trim()) { setError("请输入主题"); topicRef.current?.focus(); return; }
-    if (!apiKey) { setShowApiModal(true); return; }
     setLoading(true); setError(""); setResult(null);
     try {
       const res = await fetch("/api/generate", {
@@ -197,6 +196,7 @@ export default function Home() {
 
                 {/* 生成按钮 */}
                 <button
+                  type="button"
                   onClick={handleGenerate}
                   disabled={loading}
                   className="pixel-btn w-full h-12 bg-xhs-red text-white font-bold text-sm tracking-wider flex items-center justify-center gap-2 shadow-[4px_4px_0_0_#d41e3a] hover:bg-[#ff3b56] disabled:opacity-50 disabled:cursor-not-allowed"

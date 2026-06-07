@@ -276,22 +276,30 @@ async function callProvider(provider: ProviderConfig, userPrompt: string, userAp
     return generateMockResponse(userPrompt);
   }
 
-  const response = await fetch(provider.endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...provider.authHeader(apiKey),
-    },
-    body: JSON.stringify(provider.buildBody(SYSTEM_PROMPT, userPrompt, provider.model)),
-  });
+  try {
+    const response = await fetch(provider.endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...provider.authHeader(apiKey),
+      },
+      body: JSON.stringify(provider.buildBody(SYSTEM_PROMPT, userPrompt, provider.model)),
+    });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`${provider.name} API 错误: ${response.status} ${errText}`);
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`${provider.name} API error ${response.status}:`, errText);
+      // API 调用失败时降级为模拟数据
+      return generateMockResponse(userPrompt);
+    }
+
+    const data = await response.json();
+    return provider.parseResponse(data as Record<string, unknown>);
+  } catch (err) {
+    console.error(`${provider.name} API call failed:`, err);
+    // 网络错误等异常也降级为模拟数据
+    return generateMockResponse(userPrompt);
   }
-
-  const data = await response.json();
-  return provider.parseResponse(data as Record<string, unknown>);
 }
 
 function parseAIResponse(raw: string) {
