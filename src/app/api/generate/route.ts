@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const MAX_DAILY_GENERATIONS = 5;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const cache = new Map<string, { data: Record<string, any>; timestamp: number }>();
 const CACHE_TTL = 60 * 60 * 1000;
-const dailyCount = new Map<string, { count: number; date: string }>();
 
 // ====== 模型提供商配置 ======
 interface ProviderConfig {
@@ -116,30 +114,6 @@ const PROVIDERS: Record<string, ProviderConfig> = {
   },
 };
 
-function getDateKey(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function checkDailyLimit(userId: string): boolean {
-  const today = getDateKey();
-  const record = dailyCount.get(userId);
-  if (!record || record.date !== today) {
-    dailyCount.set(userId, { count: 0, date: today });
-    return true;
-  }
-  return record.count < MAX_DAILY_GENERATIONS;
-}
-
-function incrementDailyCount(userId: string): void {
-  const today = getDateKey();
-  const record = dailyCount.get(userId);
-  if (record && record.date === today) {
-    record.count++;
-  } else {
-    dailyCount.set(userId, { count: 1, date: today });
-  }
-}
-
 function getCacheKey(input: GenerateRequest): string {
   return `${input.model}_${input.topic}_${input.industry}_${input.style}_${input.tone}`;
 }
@@ -228,15 +202,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `不支持的模型：${model}` }, { status: 400 });
     }
 
-    const userId = request.headers.get("x-forwarded-for") || "anonymous";
-
-    if (!checkDailyLimit(userId)) {
-      return NextResponse.json(
-        { error: `每日最多生成${MAX_DAILY_GENERATIONS}次，请明天再来` },
-        { status: 429 }
-      );
-    }
-
     const cacheKey = getCacheKey(body);
     const cached = cache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
@@ -248,7 +213,6 @@ export async function POST(request: NextRequest) {
     const parsed = parseAIResponse(aiResponse);
 
     cache.set(cacheKey, { data: parsed, timestamp: Date.now() });
-    incrementDailyCount(userId);
 
     return NextResponse.json(parsed);
   } catch (error) {

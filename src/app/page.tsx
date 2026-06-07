@@ -36,6 +36,8 @@ export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [showApiModal, setShowApiModal] = useState(false);
   const [model, setModel] = useState("deepseek");
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<Array<{ topic: string; industry: string; style: string; tone: string; result: OutputData; time: string }>>([]);
   const topicRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -48,6 +50,11 @@ export default function Home() {
       const timer = setTimeout(() => setShowApiModal(true), 500);
       return () => clearTimeout(timer);
     }
+    // 加载历史记录
+    try {
+      const savedHistory = JSON.parse(localStorage.getItem("xhs_history") || "[]");
+      setHistory(savedHistory.slice(0, 20));
+    } catch { /* ignore */ }
   }, []);
 
   const saveApiKey = useCallback((key: string, modelId?: string) => {
@@ -73,9 +80,12 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || "生成失败");
       setResult(data);
       try {
-        const history = JSON.parse(localStorage.getItem("xhs_history") || "[]");
-        history.unshift({ topic: topic.trim(), industry, style, tone, result: data, time: new Date().toISOString() });
-        localStorage.setItem("xhs_history", JSON.stringify(history.slice(0, 20)));
+        const newEntry = { topic: topic.trim(), industry, style, tone, result: data, time: new Date().toISOString() };
+        const oldHistory = JSON.parse(localStorage.getItem("xhs_history") || "[]");
+        oldHistory.unshift(newEntry);
+        const trimmed = oldHistory.slice(0, 20);
+        localStorage.setItem("xhs_history", JSON.stringify(trimmed));
+        setHistory(trimmed);
       } catch { /* ignore */ }
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成失败");
@@ -110,6 +120,17 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowHistory(true)}
+              className="flex items-center gap-1 text-[10px] px-2 py-1 border-2 border-gray-300 text-gray-500 hover:border-xhs-red hover:text-xhs-red transition-colors"
+              title="历史记录"
+            >
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="8" cy="8" r="6.5" />
+                <path d="M8 4.5V8l2.5 1.5" />
+              </svg>
+              历史
+            </button>
             <span className="text-[10px] text-gray-300" style={{ fontFamily: "'Courier New', monospace" }}>
               {MODELS.find(m => m.id === model)?.icon} {MODELS.find(m => m.id === model)?.name}
             </span>
@@ -206,12 +227,8 @@ export default function Home() {
                   )}
                 </button>
 
-                <div className="flex items-center justify-center gap-2 text-[10px] text-gray-400" style={{ fontFamily: "'Courier New', monospace" }}>
-                  <PixelIcon shape="dot" /> 每日5次 · 缓存1h
-                </div>
-
                 <div className="text-center text-[10px] text-gray-300/50 select-none" style={{ fontFamily: "'Courier New', monospace" }}>
-                  AI 驱动 · 每日5次
+                  使用你自己的 API Key，按量付费
                 </div>
               </div>
 
@@ -278,6 +295,9 @@ export default function Home() {
 
       {/* API Key 配置弹窗 */}
       {showApiModal && <ApiKeyModal currentKey={apiKey} onSave={saveApiKey} onClose={() => setShowApiModal(false)} />}
+
+      {/* 历史记录弹窗 */}
+      {showHistory && <HistoryPanel history={history} onClose={() => setShowHistory(false)} onSelect={(item) => { setResult(item.result); setShowHistory(false); }} />}
 
       {/* 复制 Toast */}
       {copyText && (
@@ -461,6 +481,59 @@ function ApiKeyModal({ currentKey, onSave, onClose }: { currentKey: string; onSa
             <p className="text-[10px] text-gray-400 text-center">
               必须配置有效的 API Key 后才能使用本工具
             </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ====== 历史记录面板 ======
+function HistoryPanel({ history, onClose, onSelect }: { history: Array<{ topic: string; industry: string; style: string; tone: string; result: OutputData; time: string }>; onClose: () => void; onSelect: (item: { topic: string; industry: string; style: string; tone: string; result: OutputData; time: string }) => void }) {
+  const formatTime = (iso: string) => {
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    if (diff < 60 * 1000) return "刚刚";
+    if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)}分钟前`;
+    if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / 3600000)}小时前`;
+    return d.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white border-2 border-[#1a1a2e] shadow-[8px_8px_0_0_#1a1a2e] w-full max-w-md mx-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b-2 border-[#1a1a2e] bg-[#fafaf8] sticky top-0">
+          <h3 className="text-sm font-bold text-[#1a1a2e]" style={{ fontFamily: "'Courier New', monospace" }}>历史记录</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-[#1a1a2e] text-lg leading-none">&times;</button>
+        </div>
+        <div className="p-4">
+          {history.length === 0 ? (
+            <div className="text-center py-12 text-gray-400 text-sm">
+              <div className="text-3xl mb-2">📋</div>
+              暂无生成记录
+              <p className="text-xs mt-1">生成文案后会自动保存在这里</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {history.map((item, i) => (
+                <button
+                  key={i}
+                  onClick={() => onSelect(item)}
+                  className="w-full text-left p-3 border-2 border-gray-200 hover:border-xhs-red hover:shadow-[2px_2px_0_0_rgba(255,36,66,0.2)] transition-all bg-white"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-[#1a1a2e] truncate max-w-[250px]">{item.topic}</span>
+                    <span className="text-[10px] text-gray-400 shrink-0 ml-2" style={{ fontFamily: "'Courier New', monospace" }}>{formatTime(item.time)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                    {item.industry && <span className="bg-gray-100 px-1.5 py-0.5">{item.industry}</span>}
+                    {item.style && <span className="bg-gray-100 px-1.5 py-0.5">{item.style}</span>}
+                    <span className="ml-auto text-gray-300">点击查看</span>
+                  </div>
+                </button>
+              ))}
+            </div>
           )}
         </div>
       </div>
