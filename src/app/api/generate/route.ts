@@ -272,34 +272,32 @@ function buildUserPrompt(input: GenerateRequest): string {
 async function callProvider(provider: ProviderConfig, userPrompt: string, userApiKey?: string): Promise<string> {
   const apiKey = userApiKey || process.env.DEEPSEEK_API_KEY;
 
-  if (!apiKey) {
-    return generateMockResponse(userPrompt);
+  if (!apiKey || apiKey.trim().length < 5) {
+    throw new Error("请先配置有效的 API Key，点击右上角「未配置 Key」按钮进行配置。如需购买 Key，请联系作者。");
   }
 
-  try {
-    const response = await fetch(provider.endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...provider.authHeader(apiKey),
-      },
-      body: JSON.stringify(provider.buildBody(SYSTEM_PROMPT, userPrompt, provider.model)),
-    });
+  const response = await fetch(provider.endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...provider.authHeader(apiKey),
+    },
+    body: JSON.stringify(provider.buildBody(SYSTEM_PROMPT, userPrompt, provider.model)),
+  });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`${provider.name} API error ${response.status}:`, errText);
-      // API 调用失败时降级为模拟数据
-      return generateMockResponse(userPrompt);
-    }
-
-    const data = await response.json();
-    return provider.parseResponse(data as Record<string, unknown>);
-  } catch (err) {
-    console.error(`${provider.name} API call failed:`, err);
-    // 网络错误等异常也降级为模拟数据
-    return generateMockResponse(userPrompt);
+  if (!response.ok) {
+    const errText = await response.text();
+    let errMsg = `${provider.name} API 返回错误 (${response.status})`;
+    try {
+      const parsed = JSON.parse(errText);
+      const detail = parsed.error?.message || parsed.error?.code || "";
+      if (detail) errMsg += `：${detail}`;
+    } catch { /* ignore */ }
+    throw new Error(errMsg);
   }
+
+  const data = await response.json();
+  return provider.parseResponse(data as Record<string, unknown>);
 }
 
 function parseAIResponse(raw: string) {
@@ -329,101 +327,4 @@ function validateOutput(data: Record<string, unknown>) {
       audience: typeof suggestion.audience === "string" ? suggestion.audience : "通用人群",
     },
   };
-}
-
-function generateMockResponse(userPrompt: string): string {
-  const topic = userPrompt.replace("主题：", "").split("\n")[0] || "AI工具";
-
-  const industryMatch = userPrompt.match(/行业：(.+)/);
-  const styleMatch = userPrompt.match(/内容风格：(.+)/);
-  const toneMatch = userPrompt.match(/情绪语气：(.+)/);
-  const industry = industryMatch?.[1]?.trim() || "";
-  const style = styleMatch?.[1]?.trim() || "";
-  const tone = toneMatch?.[1]?.trim() || "";
-
-  const styleConfig = getStyleConfig(style);
-  const toneText = getToneText(tone);
-
-  const titleTemplates = [
-    `关于「${topic}」，这5个真相你一定要知道`,
-    `${topic}全攻略｜从入门到精通，看这一篇就够了`,
-    `${topic}避坑指南，新手最容易犯的3个错误`,
-    `研究了100篇${topic}笔记，我总结了这些干货`,
-    `${topic}的正确打开方式，90%的人都搞错了`,
-    `新手必看｜${topic}到底该从哪里开始？`,
-    `关于${topic}，我想说点大实话`,
-    `${topic}经验分享｜踩过的坑都在这了`,
-    `被问爆了的${topic}问题，今天统一回答`,
-    `如果你也在关注${topic}，这篇一定要收藏`,
-  ];
-
-  const mockData = {
-    titles: titleTemplates,
-    post: `${styleConfig.emoji} 最近收到好多私信问${topic}相关的问题，今天统一整理一下，希望能帮到大家。
-
-${industry ? `作为一个${industry}从业者，这个话题我确实有很多想说的。\n\n` : ""}先说说为什么${topic}这么受关注👇
-
-1️⃣ 信息差太大了
-很多人对${topic}的了解停留在表面，网上信息又杂又乱，真真假假分不清。我当初也是踩了好多坑才慢慢摸索出来的。
-
-2️⃣ 大家都想走捷径
-说句${toneText}话：${topic}没有捷径，但有方法。好的方法能让你事半功倍，坏的方法只会让你原地打转。
-
-3️⃣ 缺少系统性的梳理
-${topic}相关的零散内容很多，但真正帮你从头到尾理清楚的很少。今天这篇就是来填这个坑的💡
-
-${styleConfig.emoji} 我的几点建议：
-
-第一，不要盲目跟风。先想清楚你为什么需要${topic}，你的目标是什么。想清楚再出发，比什么都重要。
-
-第二，建立自己的判断体系。网上的声音很多，有的对有的错，关键是你要有分辨能力。多看多对比，慢慢就会有自己的判断。
-
-第三，找到靠谱的信息源。${topic}这个领域，信息质量参差不齐。建议关注几个真正做内容的博主，而不是只看标题党。
-
-第四，实践出真知。看再多不如做一次。${topic}是需要实际体验才能真正理解的，光看不动手永远学不会。
-
-📝 最后总结一下：
-${topic}这件事，急不得也慢不得。保持好奇心，保持耐心，你一定能找到属于自己的节奏。
-
-${styleConfig.emoji} 你们对${topic}还有什么疑问？评论区告诉我，我尽量回复~觉得有用的话，别忘了点赞收藏，让更多人看到！`,
-    openings: [
-      `😰 说实话，${topic}这个话题我真的想说很久了。网上很多关于${topic}的内容要么太水，要么太玄乎，今天我想从一个普通人的角度聊聊真实感受。`,
-      `💡 作为一个在${topic}上花了大量时间的人，我想分享一些可能跟主流观点不一样的想法。不一定对，但绝对真实。`,
-      `🤔 你有没有想过，关于${topic}的那些"常识"，可能都是错的？今天我想从另一个角度，重新审视这个话题。`,
-    ],
-    tags: [
-      topic,
-      `${topic}分享`,
-      `${topic}干货`,
-      `${topic}经验`,
-      "小红书分享",
-      "实用干货",
-      industry || "个人成长",
-      "知识分享",
-      "避坑指南",
-      "真心建议",
-    ],
-    suggestion: {
-      time: "工作日晚8点-10点，周末下午3点-5点",
-      heat: "中",
-      audience: industry ? `${industry}从业者及对${topic}感兴趣的人群` : `对${topic}感兴趣的各类人群`,
-    },
-  };
-
-  return JSON.stringify({ ...mockData, _mock: true });
-}
-
-function getStyleConfig(style: string): { emoji: string; label: string } {
-  if (style.includes("干货")) return { emoji: "📚", label: "干货" };
-  if (style.includes("焦虑")) return { emoji: "😰", label: "焦虑" };
-  if (style.includes("经验")) return { emoji: "💡", label: "经验" };
-  if (style.includes("工具")) return { emoji: "🛠️", label: "工具" };
-  if (style.includes("观点")) return { emoji: "💬", label: "观点" };
-  return { emoji: "✨", label: "分享" };
-}
-
-function getToneText(tone: string): string {
-  if (tone.includes("冲突")) return "句大实";
-  if (tone.includes("轻松")) return "句轻松的心里";
-  return "句实在";
 }

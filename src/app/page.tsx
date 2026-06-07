@@ -21,7 +21,6 @@ interface OutputData {
   tags: string[];
   suggestion: { time: string; heat: string; audience: string };
   cached?: boolean;
-  _mock?: boolean;
 }
 
 export default function Home() {
@@ -44,6 +43,11 @@ export default function Home() {
     if (saved) setApiKey(saved);
     const savedModel = localStorage.getItem("xhs_model");
     if (savedModel) setModel(savedModel);
+    // 首次访问或没有配置 Key 时，自动弹出配置弹窗
+    if (!saved) {
+      const timer = setTimeout(() => setShowApiModal(true), 500);
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   const saveApiKey = useCallback((key: string) => {
@@ -54,6 +58,7 @@ export default function Home() {
 
   const handleGenerate = useCallback(async () => {
     if (!topic.trim()) { setError("请输入主题"); topicRef.current?.focus(); return; }
+    if (!apiKey) { setError("请先配置 API Key 后再生成文案"); setShowApiModal(true); return; }
     setLoading(true); setError(""); setResult(null);
     try {
       const res = await fetch("/api/generate", {
@@ -304,6 +309,8 @@ function XhsLogo() {
 function ApiKeyModal({ currentKey, onSave, onClose }: { currentKey: string; onSave: (key: string) => void; onClose: () => void }) {
   const [inputValue, setInputValue] = useState(currentKey);
   const [selectedModel, setSelectedModel] = useState("deepseek");
+  const [validating, setValidating] = useState(false);
+  const [validateMsg, setValidateMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -312,9 +319,32 @@ function ApiKeyModal({ currentKey, onSave, onClose }: { currentKey: string; onSa
     if (saved) setSelectedModel(saved);
   }, []);
 
-  const handleSave = () => {
+  const handleValidate = async () => {
     const trimmed = inputValue.trim();
-    if (trimmed) onSave(trimmed);
+    if (!trimmed || trimmed.length < 5) {
+      setValidateMsg({ ok: false, text: "API Key 格式不正确，请检查后重试" });
+      return;
+    }
+    setValidating(true);
+    setValidateMsg(null);
+    try {
+      const res = await fetch("/api/validate-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: trimmed, model: selectedModel }),
+      });
+      const data = await res.json();
+      if (data.valid) {
+        setValidateMsg({ ok: true, text: data.message || "Key 验证通过" });
+        onSave(trimmed);
+      } else {
+        setValidateMsg({ ok: false, text: data.error || "Key 验证失败" });
+      }
+    } catch {
+      setValidateMsg({ ok: false, text: "网络错误，无法验证 Key" });
+    } finally {
+      setValidating(false);
+    }
   };
 
   const modelInfo = MODELS.find((m) => m.id === selectedModel) || MODELS[0];
@@ -328,12 +358,18 @@ function ApiKeyModal({ currentKey, onSave, onClose }: { currentKey: string; onSa
   };
   const guide = guides[selectedModel] || guides.deepseek;
 
+  const hasExistingKey = !!currentKey;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={hasExistingKey ? onClose : undefined}>
       <div className="bg-white border-2 border-[#1a1a2e] shadow-[8px_8px_0_0_#1a1a2e] w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b-2 border-[#1a1a2e] bg-[#fafaf8]">
-          <h3 className="text-sm font-bold text-[#1a1a2e]" style={{ fontFamily: "'Courier New', monospace" }}>配置 API Key</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-[#1a1a2e] text-lg leading-none">&times;</button>
+          <h3 className="text-sm font-bold text-[#1a1a2e]" style={{ fontFamily: "'Courier New', monospace" }}>
+            {hasExistingKey ? "管理 API Key" : "配置 API Key"}
+          </h3>
+          {hasExistingKey && (
+            <button onClick={onClose} className="text-gray-400 hover:text-[#1a1a2e] text-lg leading-none">&times;</button>
+          )}
         </div>
         <div className="p-5 space-y-4">
           {/* 模型选择 */}
@@ -361,39 +397,72 @@ function ApiKeyModal({ currentKey, onSave, onClose }: { currentKey: string; onSa
             当前模型：<span className="font-bold text-[#1a1a2e]">{modelInfo.name}</span>。Key 仅保存在你的浏览器本地，本站不会存储。
           </p>
 
+          {/* 获取 Key 指引 */}
           <div className="bg-blue-50 border-2 border-blue-200 p-3 text-xs text-blue-700 leading-relaxed">
             <div className="font-bold mb-1">如何获取 {modelInfo.name} 的 Key？</div>
             1. 访问 <a href={guide.url} target="_blank" className="underline text-blue-600 font-medium">{guide.label}</a><br />
             2. 注册/登录后，{guide.step}<br />
-            3. 粘贴到下方输入框
+            3. 粘贴到下方输入框，点击「验证并保存」
+          </div>
+
+          {/* 购买 API 引导 */}
+          <div className="bg-amber-50 border-2 border-amber-300 p-3 text-xs text-amber-800 leading-relaxed">
+            <div className="font-bold mb-1">不想自己注册？</div>
+            联系作者购买现成 API Key，即买即用，无需注册各平台。<br />
+            <span
+              className="text-amber-900 font-bold cursor-pointer hover:underline"
+              onClick={() => { navigator.clipboard.writeText("Warm_light786"); }}
+              title="点击复制微信号"
+            >
+              复制微信号：Warm_light786
+            </span>
           </div>
 
           <input
             ref={inputRef}
             type="password"
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSave()}
+            onChange={(e) => { setInputValue(e.target.value); setValidateMsg(null); }}
+            onKeyDown={(e) => e.key === "Enter" && handleValidate()}
             placeholder="sk-xxxxxxxxxxxxxxxx"
             className="w-full px-4 py-3 bg-[#fafaf8] border-2 border-[#1a1a2e] text-sm text-[#1a1a2e] placeholder:text-gray-400 focus:outline-none focus:border-xhs-red focus:shadow-[2px_2px_0_0_#ff2442] transition-all font-mono"
           />
+
+          {/* 验证结果 */}
+          {validateMsg && (
+            <div className={`border-2 p-3 text-xs font-medium ${
+              validateMsg.ok
+                ? "bg-green-50 border-green-300 text-green-700"
+                : "bg-red-50 border-red-300 text-red-600"
+            }`}>
+              {validateMsg.ok ? "✓ " : "✗ "}{validateMsg.text}
+            </div>
+          )}
+
           <div className="flex gap-3">
             <button
-              onClick={handleSave}
-              className="pixel-btn flex-1 h-10 bg-xhs-red text-white font-bold text-xs tracking-wider shadow-[4px_4px_0_0_#d41e3a] hover:bg-[#ff3b56]"
+              onClick={handleValidate}
+              disabled={validating}
+              className="pixel-btn flex-1 h-10 bg-xhs-red text-white font-bold text-xs tracking-wider shadow-[4px_4px_0_0_#d41e3a] hover:bg-[#ff3b56] disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ fontFamily: "'Courier New', monospace" }}
             >
-              保存配置
+              {validating ? "验证中..." : "验证并保存"}
             </button>
             {currentKey && (
               <button
-                onClick={() => { onSave(""); setInputValue(""); }}
+                onClick={() => { onSave(""); setInputValue(""); setValidateMsg(null); }}
                 className="px-3 h-10 border-2 border-gray-300 text-gray-500 text-xs hover:border-red-300 hover:text-red-500 transition-colors"
               >
                 清除
               </button>
             )}
           </div>
+
+          {!hasExistingKey && (
+            <p className="text-[10px] text-gray-400 text-center">
+              必须配置有效的 API Key 后才能使用本工具
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -519,11 +588,6 @@ function PreviewSkeleton() {
 function PreviewResult({ result, copyText, onCopy }: { result: OutputData; copyText: string; onCopy: (t: string, l: string) => void }) {
   return (
     <div className="space-y-4">
-      {result._mock && (
-        <div className="bg-amber-50 border-2 border-amber-300 text-amber-700 px-4 py-2 text-xs text-center font-medium" style={{ fontFamily: "'Courier New', monospace" }}>
-          [DEV] 模拟数据预览 · 配置 API Key 获得真实 AI 生成
-        </div>
-      )}
       {result.cached && (
         <div className="bg-green-50 border-2 border-green-300 text-green-700 px-4 py-2 text-xs text-center font-medium" style={{ fontFamily: "'Courier New', monospace" }}>
           [CACHE] 使用缓存结果（1小时内）
