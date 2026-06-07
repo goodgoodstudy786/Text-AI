@@ -50,9 +50,13 @@ export default function Home() {
     }
   }, []);
 
-  const saveApiKey = useCallback((key: string) => {
+  const saveApiKey = useCallback((key: string, modelId?: string) => {
     setApiKey(key);
     localStorage.setItem("xhs_api_key", key);
+    if (modelId) {
+      setModel(modelId);
+      localStorage.setItem("xhs_model", modelId);
+    }
     setShowApiModal(false);
   }, []);
 
@@ -173,30 +177,18 @@ export default function Home() {
 
                 <TagInput label="语气" presets={TONES} value={tone} onChange={setTone} placeholder="如：温暖、犀利、幽默..." />
 
-                {/* 模型选择 */}
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-bold text-[#1a1a2e] mb-2.5" style={{ fontFamily: "'Courier New', monospace" }}>
-                    <PixelIcon shape="square" /> AI 模型
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {MODELS.map((m) => (
-                      <button
-                        key={m.id}
-                        onClick={() => { setModel(m.id); localStorage.setItem("xhs_model", m.id); }}
-                        className={`px-3 py-2 text-left transition-all border-2 ${
-                          model === m.id
-                            ? "bg-xhs-red text-white border-xhs-red shadow-[2px_2px_0_0_#d41e3a]"
-                            : "bg-white text-gray-600 border-[#1a1a2e] hover:border-xhs-red hover:text-xhs-red"
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="text-xs">{m.icon}</span>
-                          <span className="text-[11px] font-bold leading-tight">{m.name}</span>
-                        </div>
-                        <div className={`text-[9px] leading-tight ${model === m.id ? "text-white/70" : "text-gray-400"}`}>{m.desc}</div>
-                      </button>
-                    ))}
+                {/* 当前模型提示 */}
+                <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-2 border-dashed border-gray-200">
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <span>{MODELS.find(m => m.id === model)?.icon}</span>
+                    <span className="font-medium text-gray-600">当前模型：{MODELS.find(m => m.id === model)?.name}</span>
                   </div>
+                  <button
+                    onClick={() => setShowApiModal(true)}
+                    className="text-[10px] text-xhs-red underline hover:no-underline font-medium"
+                  >
+                    切换
+                  </button>
                 </div>
 
                 {/* 生成按钮 */}
@@ -233,7 +225,14 @@ export default function Home() {
 
           {/* 右侧预览区 */}
           <div className="lg:col-span-7 xl:col-span-8 mt-6 lg:mt-0">
-            {loading ? <PreviewSkeleton /> : result ? <PreviewResult result={result} copyText={copyText} onCopy={handleCopy} /> : <EmptyPreview hasApiKey={!!apiKey} onConfigure={() => setShowApiModal(true)} />}
+            {loading ? <PreviewSkeleton /> : result ? <PreviewResult result={result} copyText={copyText} onCopy={handleCopy} /> : error ? (
+              <div className="flex flex-col items-center justify-center min-h-[400px]">
+                <div className="bg-red-50 border-2 border-red-300 text-red-600 px-6 py-4 text-sm text-center max-w-sm">
+                  <div className="font-bold mb-1">生成失败</div>
+                  {error}
+                </div>
+              </div>
+            ) : <EmptyPreview hasApiKey={!!apiKey} onConfigure={() => setShowApiModal(true)} />}
           </div>
         </div>
       </main>
@@ -306,7 +305,7 @@ function XhsLogo() {
 }
 
 // ====== API Key 配置弹窗 ======
-function ApiKeyModal({ currentKey, onSave, onClose }: { currentKey: string; onSave: (key: string) => void; onClose: () => void }) {
+function ApiKeyModal({ currentKey, onSave, onClose }: { currentKey: string; onSave: (key: string, modelId?: string) => void; onClose: () => void }) {
   const [inputValue, setInputValue] = useState(currentKey);
   const [selectedModel, setSelectedModel] = useState("deepseek");
   const [validating, setValidating] = useState(false);
@@ -336,7 +335,7 @@ function ApiKeyModal({ currentKey, onSave, onClose }: { currentKey: string; onSa
       const data = await res.json();
       if (data.valid) {
         setValidateMsg({ ok: true, text: data.message || "Key 验证通过" });
-        onSave(trimmed);
+        onSave(trimmed, selectedModel);
       } else {
         setValidateMsg({ ok: false, text: data.error || "Key 验证失败" });
       }
